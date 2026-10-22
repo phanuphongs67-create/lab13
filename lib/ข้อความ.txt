@@ -1,0 +1,361 @@
+
+
+import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
+import '../providers/reminder_provider.dart';
+import 'reminder_form_screen.dart'; // เปลี่ยนชื่อให้ตรงตามไฟล์ของคุณ
+
+class ReminderListScreen extends StatefulWidget {
+  const ReminderListScreen({super.key});
+
+  @override
+  State<ReminderListScreen> createState() => _ReminderListScreenState();
+}
+
+class _ReminderListScreenState extends State<ReminderListScreen> {
+  @override
+  void initState() {
+    super.initState();
+    // ดึงข้อมูลจากฐานข้อมูลเมื่อเปิดหน้าจอ
+    Future.microtask(() =>
+        Provider.of<ReminderProvider>(context, listen: false).fetchReminders());
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(
+        title: const Text('รายการเตือนความจำ'),
+      ),
+      // ใช้ Consumer ตามที่โจทย์กำหนด
+      body: Consumer<ReminderProvider>(
+        builder: (context, provider, child) {
+          if (provider.reminders.isEmpty) {
+            return const Center(child: Text('ไม่มีรายการเตือนความจำ'));
+          }
+
+          return ListView.builder(
+            itemCount: provider.reminders.length,
+            itemBuilder: (context, index) {
+              final item = provider.reminders[index];
+              return ListTile(
+                title: Text(
+                  item.title,
+                  style: TextStyle(
+                    decoration: item.isDone ? TextDecoration.lineThrough : null,
+                  ),
+                ),
+                subtitle: Text(
+                  '${item.detail}\nซ้ำทุก ${item.repeatEveryDays} วัน | วันที่: ${item.remindAt.toString().split(' ')[0]}',
+                ),
+                isThreeLine: true,
+                trailing: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    // ปุ่มแก้ไข
+                    IconButton(
+                      icon: const Icon(Icons.edit, color: Colors.blue),
+                      onPressed: () {
+                        Navigator.push(
+                          context,
+                          MaterialPageRoute(
+                            builder: (context) => ReminderFormScreen(reminder: item),
+                          ),
+                        );
+                      },
+                    ),
+                    // ปุ่มลบรายการ
+                    IconButton(
+                      icon: const Icon(Icons.delete, color: Colors.red),
+                      onPressed: () {
+                        if (item.id != null) {
+                          provider.deleteReminder(item.id!);
+                        }
+                      },
+                    ),
+                  ],
+                ),
+              );
+            },
+          );
+        },
+      ),
+      // ปุ่มเพิ่มรายการใหม่
+      floatingActionButton: FloatingActionButton(
+        onPressed: () {
+          Navigator.push(
+            context,
+            MaterialPageRoute(
+              builder: (context) => const ReminderFormScreen(),
+            ),
+          );
+        },
+        child: const Icon(Icons.add),
+      ),
+    );
+  }
+}
+
+
+import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
+import '../models/reminder.dart';
+import '../providers/reminder_provider.dart';
+
+class ReminderFormScreen extends StatefulWidget {
+  final Reminder? reminder;
+
+  const ReminderFormScreen({super.key, this.reminder});
+
+  @override
+  State<ReminderFormScreen> createState() => _ReminderFormScreenState();
+}
+
+class _ReminderFormScreenState extends State<ReminderFormScreen> {
+  final _formKey = GlobalKey<FormState>();
+
+  late TextEditingController _titleController;
+  late TextEditingController _detailController;
+  late TextEditingController _repeatController;
+
+  DateTime _selectedDate = DateTime.now();
+  bool _isDone = false;
+
+  @override
+  void initState() {
+    super.initState();
+    // ถ้ามีข้อมูลส่งมา = แก้ไข (ดึงค่าเดิมมาใส่) / ถ้าไม่มี = เพิ่มใหม่
+    _titleController = TextEditingController(text: widget.reminder?.title ?? '');
+    _detailController = TextEditingController(text: widget.reminder?.detail ?? '');
+    _repeatController = TextEditingController(
+        text: widget.reminder?.repeatEveryDays.toString() ?? '');
+
+    if (widget.reminder != null) {
+      _selectedDate = widget.reminder!.remindAt;
+      _isDone = widget.reminder!.isDone;
+    }
+  }
+
+  @override
+  void dispose() {
+    _titleController.dispose();
+    _detailController.dispose();
+    _repeatController.dispose();
+    super.dispose();
+  }
+
+  // ตัวเลือกวันที่ (DatePicker)
+  void _presentDatePicker() {
+    showDatePicker(
+      context: context,
+      initialDate: _selectedDate,
+      firstDate: DateTime(2020),
+      lastDate: DateTime(2100),
+    ).then((pickedDate) {
+      if (pickedDate == null) return;
+      setState(() {
+        _selectedDate = pickedDate;
+      });
+    });
+  }
+
+  // ฟังก์ชันบันทึกข้อมูล
+  void _saveForm() {
+    if (_formKey.currentState!.validate()) {
+      final provider = Provider.of<ReminderProvider>(context, listen: false);
+
+      final newReminder = Reminder(
+        id: widget.reminder?.id,
+        title: _titleController.text,
+        detail: _detailController.text,
+        repeatEveryDays: int.parse(_repeatController.text), // ใช้ int.parse ตาม README
+        remindAt: _selectedDate,
+        isDone: _isDone,
+      );
+
+      if (widget.reminder == null) {
+        provider.addReminder(newReminder); // เพิ่ม
+      } else {
+        provider.updateReminder(newReminder); // อัปเดต
+      }
+
+      Navigator.pop(context);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final isEditing = widget.reminder != null;
+
+    return Scaffold(
+      appBar: AppBar(
+        title: Text(isEditing ? 'แก้ไขรายการ' : 'เพิ่มรายการใหม่'),
+      ),
+      body: Padding(
+        padding: const EdgeInsets.all(16.0),
+        child: Form(
+          key: _formKey,
+          child: ListView(
+            children: [
+              // 1. Title + validator
+              TextFormField(
+                controller: _titleController,
+                decoration: const InputDecoration(labelText: 'หัวข้อ (title)'),
+                validator: (value) {
+                  if (value == null || value.trim().isEmpty) {
+                    return 'กรุณากรอกหัวข้อ';
+                  }
+                  return null;
+                },
+              ),
+              const SizedBox(height: 12),
+
+              // 2. Detail + validator
+              TextFormField(
+                controller: _detailController,
+                decoration: const InputDecoration(labelText: 'รายละเอียด (detail)'),
+                validator: (value) {
+                  if (value == null || value.trim().isEmpty) {
+                    return 'กรุณากรอกรายละเอียด';
+                  }
+                  return null;
+                },
+              ),
+              const SizedBox(height: 12),
+
+              // 3. repeatEveryDays (int) + validator
+              TextFormField(
+                controller: _repeatController,
+                keyboardType: TextInputType.number,
+                decoration: const InputDecoration(labelText: 'เตือนซ้ำทุกๆ (วัน)'),
+                validator: (value) {
+                  if (value == null || value.trim().isEmpty) {
+                    return 'กรุณากรอกจำนวนวัน';
+                  }
+                  if (int.tryParse(value) == null) {
+                    return 'กรุณากรอกตัวเลขเท่านั้น';
+                  }
+                  return null;
+                },
+              ),
+              const SizedBox(height: 16),
+
+              // 4. remindAt (DateTime)
+              Row(
+                children: [
+                  Expanded(
+                    child: Text(
+                      'วันเวลาเตือน: ${_selectedDate.toString().split(' ')[0]}',
+                    ),
+                  ),
+                  TextButton(
+                    onPressed: _presentDatePicker,
+                    child: const Text('เลือกวันที่'),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 12),
+
+              // 5. isDone (bool)
+              CheckboxListTile(
+                title: const Text('ทำแล้ว (isDone)'),
+                value: _isDone,
+                onChanged: (val) {
+                  setState(() {
+                    _isDone = val ?? false;
+                  });
+                },
+              ),
+              const SizedBox(height: 20),
+
+              // ปุ่มบันทึก
+              ElevatedButton(
+                onPressed: _saveForm,
+                child: Text(isEditing ? 'อัปเดต' : 'บันทึก'),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+
+import 'package:flutter/foundation.dart';
+import 'package:sqflite/sqflite.dart';
+import 'package:path/path.dart';
+import '../models/reminder.dart';
+
+class ReminderProvider with ChangeNotifier {
+  Database? _db;
+  List<Reminder> _reminders = [];
+
+  List<Reminder> get reminders => _reminders;
+
+  Future<Database> get database async {
+    if (_db != null) return _db!;
+    _db = await initDB();
+    return _db!;
+  }
+
+  Future<Database> initDB() async {
+    String dbPath = await getDatabasesPath();
+    String path = join(dbPath, 'reminders.db');
+
+    return await openDatabase(
+      path,
+      version: 1,
+      onCreate: (db, version) async {
+        await db.execute('''
+          CREATE TABLE reminders (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            title TEXT,
+            detail TEXT,
+            repeatEveryDays INTEGER,
+            remindAt TEXT,
+            isDone INTEGER
+          )
+        ''');
+      },
+    );
+  }
+
+  // C - Insert
+  Future<void> addReminder(Reminder item) async {
+    final db = await database;
+    await db.insert('reminders', item.toMap());
+    await fetchReminders();
+  }
+
+  // R - Query
+  Future<void> fetchReminders() async {
+    final db = await database;
+    final List<Map<String, dynamic>> maps = await db.query('reminders');
+    _reminders = maps.map((e) => Reminder.fromMap(e)).toList();
+    notifyListeners();
+  }
+
+  // U - Update
+  Future<void> updateReminder(Reminder item) async {
+    final db = await database;
+    await db.update(
+      'reminders',
+      item.toMap(),
+      where: 'id = ?',
+      whereArgs: [item.id],
+    );
+    await fetchReminders();
+  }
+
+  // D - Delete
+  Future<void> deleteReminder(int id) async {
+    final db = await database;
+    await db.delete(
+      'reminders',
+      where: 'id = ?',
+      whereArgs: [id],
+    );
+    await fetchReminders();
+  }
+}
